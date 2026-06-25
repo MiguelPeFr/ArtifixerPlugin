@@ -177,14 +177,15 @@ class ArtiFixerExportPlugin:
                 mode=settings.mode.value,
             )
 
+        manifest["_debug"] = self._build_debug_trace(scene, cameras)
         manifest_path = self.writer.write_manifest(out_dir, manifest)
-        self._write_debug_trace(out_dir, scene, cameras)
+        self._write_debug_trace(out_dir, manifest["_debug"])
         ctx.report(100, 100, f"Done -> {manifest_path}")
         log.info("ArtiFixer dataset exported to %s", out_dir)
         return manifest_path
 
-    def _write_debug_trace(self, out_dir: Path, scene, cameras) -> None:
-        payload = {
+    def _build_debug_trace(self, scene, cameras) -> dict:
+        return {
             "scene_name": getattr(scene, "name", None),
             "scene_type": type(getattr(scene, "raw", None)).__name__ if getattr(scene, "raw", None) is not None else None,
             "scene_has_raw": getattr(scene, "raw", None) is not None,
@@ -192,6 +193,8 @@ class ArtiFixerExportPlugin:
             "first_camera": cameras[0].to_metadata() | {"name": cameras[0].name} if cameras else None,
             "render_events": list(self.renderer.debug_events),
         }
+
+    def _write_debug_trace(self, out_dir: Path, payload: dict) -> None:
         try:
             (out_dir / "debug_trace.json").write_text(json.dumps(payload, indent=2))
         except Exception:  # noqa: BLE001
