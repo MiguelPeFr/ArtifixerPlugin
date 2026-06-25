@@ -33,11 +33,15 @@ class RenderService:
     def render_rgb(self, scene: Scene, cam: Camera) -> np.ndarray:
         img = self._dispatch(scene, cam, pass_name="rgb")
         if img is None:
+            img = self._render_with_lf(scene, cam)
+        if img is None:
             img = self._synthetic_rgb(scene, cam)
         return self._ensure_uint8_rgb(img)
 
     def render_opacity(self, scene: Scene, cam: Camera) -> np.ndarray:
         img = self._dispatch(scene, cam, pass_name="opacity")
+        if img is None:
+            img = self._render_alpha_with_lf(scene, cam)
         if img is None:
             img = self._synthetic_opacity(scene, cam)
         return self._ensure_mask(img)
@@ -74,6 +78,39 @@ class RenderService:
         except Exception:  # noqa: BLE001
             log.exception("LichtFeld render %s failed; using synthetic buffer", pass_name)
             return None
+
+    def _render_with_lf(self, scene: Scene, cam: Camera) -> Optional[np.ndarray]:
+        """Fallback for hosts that expose rendering via ``lf.render_at``."""
+        try:
+            import lichtfeld as lf  # type: ignore
+
+            eye = cam.c2w[:3, 3]
+            forward = cam.c2w[:3, 2]
+            target = eye + forward
+            up = -cam.c2w[:3, 1]
+            fov = self._camera_fov_deg(cam)
+
+            frame_tensor = lf.render_at(
+                eye=tuple(float(x) for x in eye),
+                target=tuple(float(x) for x in target),
+                width=int(cam.width),
+                height=int(cam.height),
+                fov=float(fov),
+                up=tuple(float(x) for x in up),
+            )
+            if frame_tensor is None:
+                return None
+            return self._tensor_to_numpy(frame_tensor)
+        except Exception:  # noqa: BLE001
+            log.exception("lf.render_at failed; using synthetic fallback")
+            return None
+
+    def _render_alpha_with_lf(self, scene: Scene, cam: Camera) -> Optional[np.ndarray]:
+        rgba = self._render_with_lf(scene, cam)
+        if rgba is None or rgba.ndim != 3 or rgba.shape[-1] < 4:
+            return None
+        alpha = rgba[..., 3]
+        return np.asarray(alpha)
 
     # ---- Synthetic fallback (used by the demo) ------------------------------
     @staticmethod
@@ -150,6 +187,8 @@ class RenderService:
     # ---- Helpers ------------------------------------------------------------
     @staticmethod
     def _ensure_uint8_rgb(img: np.ndarray) -> np.ndarray:
+        if img.ndim == 3 and img.shape[-1] >= 4:
+            img = img[..., :3]
         if img.dtype != np.uint8:
             img = np.clip(img, 0, 255).astype(np.uint8)
         if img.ndim == 2:
@@ -163,3 +202,22 @@ class RenderService:
         if img.dtype != np.uint8:
             img = np.clip(img, 0, 255).astype(np.uint8)
         return img
+
+    @staticmethod
+    def _camera_fov_deg(cam: Camera) -> float:
+        return math.degrees(2.0 * math.atan2(float(cam.width), 2.0 * max(float(cam.fx), 1e-6)))
+
+    @staticmethod
+    def _tensor_to_numpy(frame_tensor: Any) -> np.ndarray:
+        if hasattr(frame_tensor, "numpy"):
+            arr = frame_tensor.numpy()
+        else:
+            arr = np.asarray(frame_tensor)
+
+        arr = np.asarray(arr)
+        if arr.dtype != np.uint8:
+            if np.issubdtype(arr.dtype, np.floating) and arr.size and arr.max() <= 1.0:
+                arr = (arr * 255.0).clip(0, 255).astype(np.uint8)
+            else:
+                arr = np.clip(arr, 0, 255).astype(np.uint8)
+        return arr

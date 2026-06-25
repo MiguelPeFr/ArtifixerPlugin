@@ -52,6 +52,12 @@ class SceneAdapter:
     def get_active_scene(self, app: Any) -> Scene:
         """Return the currently loaded scene from the host application."""
         if app is None:
+            # Inside LichtFeld, plugins can still access the active scene via
+            # the module-level API even if no explicit app handle is passed in.
+            scene_obj = self._read_scene_from_lf()
+            if scene_obj is not None:
+                return self._wrap_scene(scene_obj)
+
             # No host: return a minimal scene so the rest of the pipeline
             # can still run in standalone / test mode.
             log.warning("No app context; returning empty scene")
@@ -62,6 +68,15 @@ class SceneAdapter:
             return Scene(name=getattr(app, "project_name", "scene"))
 
         return self._wrap_scene(scene_obj)
+
+    @staticmethod
+    def _read_scene_from_lf() -> Any:
+        try:
+            import lichtfeld as lf  # type: ignore
+
+            return lf.get_scene()
+        except Exception:  # noqa: BLE001
+            return None
 
     def collect_cameras(
         self,
