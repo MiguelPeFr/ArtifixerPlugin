@@ -7,11 +7,18 @@ name = "lichtfeld-artifixer-export"
 version = "0.1.0"
 description = "LichtFeld Studio plugin to export datasets compatible with NVIDIA ArtiFixer."
 requires-python = ">=3.10"
+authors = [{ name = "Miguel Angel" }]
 dependencies = [
   "numpy>=1.24",
   "Pillow>=10.0",
   "jsonschema>=4.21",
 ]
+
+[tool.lichtfeld]
+hot_reload = true
+plugin_api = ">=1,<2"
+lichtfeld_version = ">=0.4.2"
+required_features = []
 
 [tool.setuptools]
 include-package-data = false
