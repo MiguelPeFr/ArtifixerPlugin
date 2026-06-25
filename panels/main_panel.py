@@ -1,20 +1,13 @@
-"""ArtiFixer Export panel for LichtFeld Studio.
-
-LichtFeld registers this class via ``lf.register_class(ArtiFixerPanel)``
-inside the host. The panel must subclass the real ``lf.ui.Panel`` and
-declare ``space`` as the enum ``lf.ui.PanelSpace.MAIN_PANEL_TAB`` (not a
-string literal); otherwise the host raises ``ValueError``.
-"""
+"""ArtiFixer Export panel for LichtFeld Studio."""
 
 from __future__ import annotations
 
 import logging
 import threading
-from typing import List, Type
+from typing import List
 
 import lichtfeld as lf
 
-from plugin import ArtiFixerExportPlugin
 from services.camera_sampler import SamplerConfig
 from ui.export_panel import ExportMode, ExportSettings
 
@@ -25,14 +18,12 @@ log = logging.getLogger("artifixer_export.panel")
 class ArtiFixerPanel(lf.ui.Panel):
     """Main export panel rendered as a tab inside LichtFeld."""
 
-    id = "artifixer.export_panel"
+    id = "artifixer_export.main_panel"
     label = "ArtiFixer Export"
     space = lf.ui.PanelSpace.MAIN_PANEL_TAB
     order = 250
 
-    # ---- UI state (kept on self across draw() calls) --------------------
     def __init__(self) -> None:
-        super().__init__()
         self._scene_id: str = ""
         self._output_dir: str = "./artifixer_dataset"
         self._resolution_w: int = 1024
@@ -57,60 +48,55 @@ class ArtiFixerPanel(lf.ui.Panel):
             self._status = msg
         lf.ui.request_redraw()
 
-    # ---- Visibility predicate ---------------------------------------------
     @classmethod
-    def poll(cls, context: Any) -> bool:  # noqa: D401
-        """Show the panel only when a scene is loaded."""
+    def poll(cls, context):
         try:
             return lf.scene.is_loaded()
-        except Exception:  # noqa: BLE001 - host API may not be available
+        except Exception:
             return True
 
-    # ---- draw(ui) ---------------------------------------------------------
-    def draw(self, ui: Any) -> None:
-        ui.heading("ArtiFixer Dataset Export")
+    def draw(self, ui) -> None:
+        ui.heading("ArtiFixer Export")
         ui.text_disabled(
-            "Export the active LichtFeld scene to a dataset ready for "
-            "NVIDIA ArtiFixer (RGB, opacity, depth, ray maps, manifest)."
+            "Exporta la escena activa de LichtFeld a un dataset para NVIDIA ArtiFixer."
         )
 
-        # ---- Scene + output ------------------------------------------------
         ui.separator()
         ui.text("Scene")
-        self._scene_id = ui.input_text("Scene ID", self._scene_id)
+        _, self._scene_id = ui.input_text_with_hint(
+            "Scene ID", "object_001", self._scene_id
+        )
 
         ui.text("Output")
-        self._output_dir = ui.input_text("Output directory", self._output_dir)
+        _, self._output_dir = ui.input_text_with_hint(
+            "Output directory", "./artifixer_dataset", self._output_dir
+        )
 
-        # ---- Resolution ----------------------------------------------------
         ui.separator()
         ui.text("Resolution")
-        self._resolution_w = ui.input_int("Width",  self._resolution_w, min=64,  max=8192)
-        self._resolution_h = ui.input_int("Height", self._resolution_h, min=64,  max=8192)
+        _, self._resolution_w = ui.input_int("Width", self._resolution_w)
+        _, self._resolution_h = ui.input_int("Height", self._resolution_h)
 
-        # ---- Cameras -------------------------------------------------------
         ui.separator()
         ui.text("Cameras")
-        self._camera_mode = ui.combo(
+        _, self._camera_mode = ui.combo(
             "Camera mode",
             self._camera_mode,
             ["original", "orbit", "hemisphere", "multi_ring", "manual"],
         )
-        self._num_views = ui.input_int("Number of views", self._num_views, min=1, max=512)
-        self._radius_factor = ui.slider_float(
+        _, self._num_views = ui.input_int("Number of views", self._num_views)
+        _, self._radius_factor = ui.slider_float(
             "Radius factor", self._radius_factor, 0.5, 5.0
         )
 
-        # ---- Export preset -------------------------------------------------
         ui.separator()
         ui.text("Export preset")
-        self._export_mode = ui.combo(
+        _, self._export_mode = ui.combo(
             "Mode",
             self._export_mode,
             [ExportMode.PREVIEW.value, ExportMode.TRAINING.value, ExportMode.RESEARCH.value],
         )
 
-        # ---- Action button -------------------------------------------------
         ui.separator()
         if self._busy:
             ui.text_disabled(f"Running... {self._progress}%  {self._status}")
@@ -119,13 +105,12 @@ class ArtiFixerPanel(lf.ui.Panel):
                 self._launch_export()
 
         if self._progress:
-            ui.progress_bar(self._progress, 0, 100)
+            ui.progress_bar(self._progress / 100.0, f"{self._progress}%")
         if self._status:
             ui.text_disabled(f"Status: {self._status}")
         if self._last_manifest:
             ui.text_disabled(f"Last manifest: {self._last_manifest}")
 
-    # ---- Export dispatch --------------------------------------------------
     def _launch_export(self) -> None:
         if self._busy:
             return
@@ -157,13 +142,14 @@ class ArtiFixerPanel(lf.ui.Panel):
 
     def _run_export_worker(self, settings: ExportSettings) -> None:
         try:
+            from plugin import ArtiFixerExportPlugin
+
             plugin = ArtiFixerExportPlugin()
             plugin.on_load(app=None)
 
             settings.sampler.width = settings.resolution[0]
             settings.sampler.height = settings.resolution[1]
 
-            # Re-bind the progress callback so the worker updates the panel.
             plugin.panel.set_progress = self.set_progress  # type: ignore[attr-defined]
 
             manifest = plugin._run_export(settings)
@@ -178,4 +164,4 @@ class ArtiFixerPanel(lf.ui.Panel):
             lf.ui.request_redraw()
 
 
-_classes: List[Type[Any]] = [ArtiFixerPanel]
+_classes: List[type] = [ArtiFixerPanel]
