@@ -1,0 +1,8 @@
+Metadata-Version: 2.4
+Name: lichtfeld-artifixer-export
+Version: 0.1.0
+Summary: LichtFeld Studio plugin to export datasets compatible with NVIDIA ArtiFixer.
+Requires-Python: >=3.10
+Requires-Dist: numpy>=1.24
+Requires-Dist: Pillow>=10.0
+Requires-Dist: jsonschema>=4.21
