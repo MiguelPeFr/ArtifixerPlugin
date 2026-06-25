@@ -64,9 +64,16 @@ class RenderService:
 
     def __init__(self) -> None:
         self._lichfeld_render = None  # injected in on_load
+        self.debug_events: list[dict[str, Any]] = []
 
     # ---- Public API ---------------------------------------------------------
     def render_rgb(self, scene: Scene, cam: Camera) -> np.ndarray:
+        event: dict[str, Any] = {
+            "scene_name": scene.name,
+            "camera_name": cam.name,
+            "size": [int(cam.width), int(cam.height)],
+            "path": None,
+        }
         img = self._dispatch(scene, cam, pass_name="rgb")
         _debug_report("B", "render_service.py:render_rgb", "after _dispatch rgb", {
             "dispatch_hit": img is not None,
@@ -76,6 +83,8 @@ class RenderService:
         })
         if img is None:
             img = self._render_with_lf(scene, cam)
+            if img is not None:
+                event["path"] = "lf.render_at"
         _debug_report("B", "render_service.py:render_rgb", "after _render_with_lf rgb", {
             "lf_render_hit": img is not None,
             "scene_name": scene.name,
@@ -87,6 +96,11 @@ class RenderService:
                 "camera_name": cam.name,
             })
             img = self._synthetic_rgb(scene, cam)
+            event["path"] = "synthetic"
+        elif event["path"] is None:
+            event["path"] = "scene.renderer"
+        event["shape"] = list(np.asarray(img).shape)
+        self.debug_events.append(event)
         return self._ensure_uint8_rgb(img)
 
     def render_opacity(self, scene: Scene, cam: Camera) -> np.ndarray:

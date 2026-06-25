@@ -19,6 +19,7 @@ Modes:
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -177,9 +178,24 @@ class ArtiFixerExportPlugin:
             )
 
         manifest_path = self.writer.write_manifest(out_dir, manifest)
+        self._write_debug_trace(out_dir, scene, cameras)
         ctx.report(100, 100, f"Done -> {manifest_path}")
         log.info("ArtiFixer dataset exported to %s", out_dir)
         return manifest_path
+
+    def _write_debug_trace(self, out_dir: Path, scene, cameras) -> None:
+        payload = {
+            "scene_name": getattr(scene, "name", None),
+            "scene_type": type(getattr(scene, "raw", None)).__name__ if getattr(scene, "raw", None) is not None else None,
+            "scene_has_raw": getattr(scene, "raw", None) is not None,
+            "camera_count": len(cameras),
+            "first_camera": cameras[0].to_metadata() | {"name": cameras[0].name} if cameras else None,
+            "render_events": list(self.renderer.debug_events),
+        }
+        try:
+            (out_dir / "debug_trace.json").write_text(json.dumps(payload, indent=2))
+        except Exception:  # noqa: BLE001
+            log.exception("failed to write debug trace")
 
 
 # --------------------------------------------------------------------------- #
