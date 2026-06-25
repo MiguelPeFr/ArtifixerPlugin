@@ -60,77 +60,80 @@ class ArtiFixerPanel(lf.ui.Panel):
         ui.text_disabled(
             "Exporta la escena activa de LichtFeld a un dataset para NVIDIA ArtiFixer."
         )
+        try:
+            ui.separator()
+            ui.label("Scene")
+            _, self._scene_id = ui.input_text_with_hint(
+                "Scene ID", "object_001", self._scene_id
+            )
 
-        ui.separator()
-        ui.text("Scene")
-        _, self._scene_id = ui.input_text_with_hint(
-            "Scene ID", "object_001", self._scene_id
-        )
+            ui.label("Output")
+            _, self._output_dir = ui.input_text_with_hint(
+                "Output directory", "./artifixer_dataset", self._output_dir
+            )
 
-        ui.text("Output")
-        _, self._output_dir = ui.input_text_with_hint(
-            "Output directory", "./artifixer_dataset", self._output_dir
-        )
+            ui.separator()
+            ui.label("Resolution")
+            _, self._resolution_w_text = ui.input_text_with_hint(
+                "Width", "1024", self._resolution_w_text
+            )
+            _, self._resolution_h_text = ui.input_text_with_hint(
+                "Height", "1024", self._resolution_h_text
+            )
 
-        ui.separator()
-        ui.text("Resolution")
-        _, self._resolution_w_text = ui.input_text_with_hint(
-            "Width", "1024", self._resolution_w_text
-        )
-        _, self._resolution_h_text = ui.input_text_with_hint(
-            "Height", "1024", self._resolution_h_text
-        )
+            ui.separator()
+            ui.label("Cameras")
+            self._draw_choice_buttons(
+                ui,
+                current=self._camera_mode,
+                options=[
+                    ("original", "Original"),
+                    ("orbit", "Orbit"),
+                    ("hemisphere", "Hemisphere"),
+                    ("multi_ring", "Multi Ring"),
+                    ("manual", "Manual"),
+                ],
+                setter=self._set_camera_mode,
+            )
+            _, self._num_views_text = ui.input_text_with_hint(
+                "Number of views", "36", self._num_views_text
+            )
+            _, self._radius_factor = ui.slider_float(
+                "Radius factor", self._radius_factor, 0.5, 5.0
+            )
 
-        ui.separator()
-        ui.text("Cameras")
-        self._draw_choice_buttons(
-            ui,
-            current=self._camera_mode,
-            options=[
-                ("original", "Original"),
-                ("orbit", "Orbit"),
-                ("hemisphere", "Hemisphere"),
-                ("multi_ring", "Multi Ring"),
-                ("manual", "Manual"),
-            ],
-            setter=self._set_camera_mode,
-        )
-        _, self._num_views_text = ui.input_text_with_hint(
-            "Number of views", "36", self._num_views_text
-        )
-        _, self._radius_factor = ui.slider_float(
-            "Radius factor", self._radius_factor, 0.5, 5.0
-        )
+            ui.separator()
+            ui.label("Export preset")
+            self._draw_choice_buttons(
+                ui,
+                current=self._export_mode,
+                options=[
+                    (ExportMode.PREVIEW.value, "Preview"),
+                    (ExportMode.TRAINING.value, "Training"),
+                    (ExportMode.RESEARCH.value, "Research"),
+                ],
+                setter=self._set_export_mode,
+            )
+            ui.bullet_text("Preview: RGB y cameras.json")
+            ui.bullet_text("Training: RGB, opacity y manifest")
+            ui.bullet_text("Research: anade depth y normal")
 
-        ui.separator()
-        ui.text("Export preset")
-        self._draw_choice_buttons(
-            ui,
-            current=self._export_mode,
-            options=[
-                (ExportMode.PREVIEW.value, "Preview"),
-                (ExportMode.TRAINING.value, "Training"),
-                (ExportMode.RESEARCH.value, "Research"),
-            ],
-            setter=self._set_export_mode,
-        )
-        ui.bullet_text("Preview: RGB y cameras.json")
-        ui.bullet_text("Training: RGB, opacity y manifest")
-        ui.bullet_text("Research: anade depth y normal")
+            ui.separator()
+            if self._busy:
+                ui.text_disabled(f"Running... {self._progress}%  {self._status}")
+            else:
+                if ui.button_styled("Export ArtiFixer Dataset", "primary"):
+                    self._launch_export()
 
-        ui.separator()
-        if self._busy:
-            ui.text_disabled(f"Running... {self._progress}%  {self._status}")
-        else:
-            if ui.button_styled("Export ArtiFixer Dataset", "primary"):
-                self._launch_export()
-
-        if self._progress:
-            ui.progress_bar(self._progress / 100.0, f"{self._progress}%")
-        if self._status:
-            ui.text_disabled(f"Status: {self._status}")
-        if self._last_manifest:
-            ui.text_disabled(f"Last manifest: {self._last_manifest}")
+            if self._progress:
+                ui.progress_bar(self._progress / 100.0, f"{self._progress}%")
+            if self._status:
+                ui.text_disabled(f"Status: {self._status}")
+            if self._last_manifest:
+                ui.text_disabled(f"Last manifest: {self._last_manifest}")
+        except Exception as exc:  # noqa: BLE001
+            lf.log.error(f"ArtiFixer panel draw error: {exc}")
+            ui.text_disabled(f"UI error: {exc}")
 
     def _launch_export(self) -> None:
         if self._busy:
