@@ -1,35 +1,41 @@
-"""ArtiFixer export panel for LichtFeld Studio.
+"""ArtiFixer Export panel for LichtFeld Studio.
 
-LichtFeld discovers this panel because ``__init__.py`` registers it via
-``lf.register_class()``. We resolve ``lf.ui.Panel`` lazily so that this
-file can still be imported in environments where the host runtime is not
-installed (CI, unit tests).
+Based on the 360_record plugin UI conventions:
+
+- ``lf.ui.Panel`` subclass with ``id``, ``label``, ``space``, ``order``.
+- ``draw(self, ui)`` builds the UI using the immediate-mode helpers.
+- Heavy work is dispatched to a background thread and reflected through
+  ``lf.ui.request_redraw()`` so the UI stays responsive.
 """
 
 from __future__ import annotations
 
 import logging
 import threading
-from typing import Any, Type
+from typing import Any, List, Type
+
+import lichtfeld as lf
 
 from plugin import ArtiFixerExportPlugin
-from ui.export_panel import ExportMode, ExportSettings
 from services.camera_sampler import SamplerConfig
+from ui.export_panel import ExportMode, ExportSettings
 
 log = logging.getLogger("artifixer_export.panel")
 
 
+# --------------------------------------------------------------------------- #
+# Lazy base class resolution
+# --------------------------------------------------------------------------- #
 def _resolve_panel_base() -> Type[Any]:
-    """Return ``lf.ui.Panel`` from the host, or a permissive fallback.
+    """Return ``lf.ui.Panel`` from the host, or ``object`` as a fallback.
 
-    When this module is loaded from inside LichtFeld, ``lichtfeld.ui.Panel``
-    is the real base class. In other contexts (tests, CLI), we fall back to
-    ``object`` so the rest of the file still imports cleanly.
+    The fallback only matters in environments where LichtFeld is not
+    installed (CI, tests). Inside LichtFeld the real base class is used.
     """
     try:
-        import lichtfeld as lf  # type: ignore
-        return lf.ui.Panel  # type: ignore[attr-defined]
-    except Exception:  # noqa: BLE001 - host may not be present
+        import lichtfeld as _lf  # type: ignore
+        return _lf.ui.Panel  # type: ignore[attr-defined]
+    except Exception:  # noqa: BLE001
         return object
 
 
@@ -42,7 +48,7 @@ class ArtiFixerPanel(PanelBase):
 
     id = "artifixer.export_panel"
     label = "ArtiFixer Export"
-    space = "MAIN_PANEL_TAB"     # fallback string; host overrides if present
+    space = lf.ui.PanelSpace.MAIN_PANEL_TAB
     order = 250
 
     # ---- UI state (kept on self across draw() calls) --------------------
@@ -64,11 +70,22 @@ class ArtiFixerPanel(PanelBase):
     # ---- Imperative API used by the runner thread -------------------------
     def set_status(self, msg: str) -> None:
         self._status = msg
+        lf.ui.request_redraw()
 
     def set_progress(self, current: int, total: int, msg: str = "") -> None:
         self._progress = int(100 * current / max(total, 1))
         if msg:
             self._status = msg
+        lf.ui.request_redraw()
+
+    # ---- Visibility predicate ---------------------------------------------
+    @classmethod
+    def poll(cls, context: Any) -> bool:  # noqa: D401
+        """Show the panel only when a scene is loaded."""
+        try:
+            return lf.scene.is_loaded()
+        except Exception:  # noqa: BLE001 - host API may not be available
+            return True
 
     # ---- draw(ui) ---------------------------------------------------------
     def draw(self, ui: Any) -> None:
@@ -101,7 +118,9 @@ class ArtiFixerPanel(PanelBase):
             ["original", "orbit", "hemisphere", "multi_ring", "manual"],
         )
         self._num_views = ui.input_int("Number of views", self._num_views, min=1, max=512)
-        self._radius_factor = ui.slider_float("Radius factor", self._radius_factor, 0.5, 5.0)
+        self._radius_factor = ui.slider_float(
+            "Radius factor", self._radius_factor, 0.5, 5.0
+        )
 
         # ---- Export preset -------------------------------------------------
         ui.separator()
@@ -117,7 +136,7 @@ class ArtiFixerPanel(PanelBase):
         if self._busy:
             ui.text_disabled(f"Running... {self._progress}%  {self._status}")
         else:
-            if ui.button("Export ArtiFixer Dataset"):
+            if ui.button_styled("Export ArtiFixer Dataset", "primary"):
                 self._launch_export()
 
         if self._progress:
@@ -134,6 +153,7 @@ class ArtiFixerPanel(PanelBase):
         self._busy = True
         self._progress = 0
         self._status = "Starting export..."
+        lf.ui.request_redraw()
 
         settings = ExportSettings(
             scene_id=self._scene_id,
@@ -159,15 +179,12 @@ class ArtiFixerPanel(PanelBase):
     def _run_export_worker(self, settings: ExportSettings) -> None:
         try:
             plugin = ArtiFixerExportPlugin()
-            # Inside the host, ``app`` is exposed via the registered panel
-            # instance. Passing ``None`` keeps the scene adapter in its
-            # ``empty`` fallback so the worker still runs end-to-end.
             plugin.on_load(app=None)
 
             settings.sampler.width = settings.resolution[0]
             settings.sampler.height = settings.resolution[1]
 
-            # Re-bind the progress callback to this panel instance.
+            # Re-bind the progress callback so the worker updates the panel.
             plugin.panel.set_progress = self.set_progress  # type: ignore[attr-defined]
 
             manifest = plugin._run_export(settings)
@@ -179,6 +196,7 @@ class ArtiFixerPanel(PanelBase):
         finally:
             self._progress = 100 if self._status.startswith("Done") else self._progress
             self._busy = False
+            lf.ui.request_redraw()
 
 
-_classes = [ArtiFixerPanel]
+_classes: List[Type[Any]] = [ArtiFixerPanel]
