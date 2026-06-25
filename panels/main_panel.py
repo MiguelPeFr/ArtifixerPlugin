@@ -26,11 +26,11 @@ class ArtiFixerPanel(lf.ui.Panel):
     def __init__(self) -> None:
         self._scene_id: str = ""
         self._output_dir: str = "./artifixer_dataset"
-        self._resolution_w: int = 1024
-        self._resolution_h: int = 1024
+        self._resolution_w_text: str = "1024"
+        self._resolution_h_text: str = "1024"
         self._camera_mode: str = "orbit"
         self._export_mode: str = ExportMode.TRAINING.value
-        self._num_views: int = 36
+        self._num_views_text: str = "36"
         self._radius_factor: float = 1.6
         self._status: str = "Idle"
         self._progress: int = 0
@@ -74,28 +74,49 @@ class ArtiFixerPanel(lf.ui.Panel):
 
         ui.separator()
         ui.text("Resolution")
-        _, self._resolution_w = ui.input_int("Width", self._resolution_w)
-        _, self._resolution_h = ui.input_int("Height", self._resolution_h)
+        _, self._resolution_w_text = ui.input_text_with_hint(
+            "Width", "1024", self._resolution_w_text
+        )
+        _, self._resolution_h_text = ui.input_text_with_hint(
+            "Height", "1024", self._resolution_h_text
+        )
 
         ui.separator()
         ui.text("Cameras")
-        _, self._camera_mode = ui.combo(
-            "Camera mode",
-            self._camera_mode,
-            ["original", "orbit", "hemisphere", "multi_ring", "manual"],
+        self._draw_choice_buttons(
+            ui,
+            current=self._camera_mode,
+            options=[
+                ("original", "Original"),
+                ("orbit", "Orbit"),
+                ("hemisphere", "Hemisphere"),
+                ("multi_ring", "Multi Ring"),
+                ("manual", "Manual"),
+            ],
+            setter=self._set_camera_mode,
         )
-        _, self._num_views = ui.input_int("Number of views", self._num_views)
+        _, self._num_views_text = ui.input_text_with_hint(
+            "Number of views", "36", self._num_views_text
+        )
         _, self._radius_factor = ui.slider_float(
             "Radius factor", self._radius_factor, 0.5, 5.0
         )
 
         ui.separator()
         ui.text("Export preset")
-        _, self._export_mode = ui.combo(
-            "Mode",
-            self._export_mode,
-            [ExportMode.PREVIEW.value, ExportMode.TRAINING.value, ExportMode.RESEARCH.value],
+        self._draw_choice_buttons(
+            ui,
+            current=self._export_mode,
+            options=[
+                (ExportMode.PREVIEW.value, "Preview"),
+                (ExportMode.TRAINING.value, "Training"),
+                (ExportMode.RESEARCH.value, "Research"),
+            ],
+            setter=self._set_export_mode,
         )
+        ui.bullet_text("Preview: RGB y cameras.json")
+        ui.bullet_text("Training: RGB, opacity y manifest")
+        ui.bullet_text("Research: anade depth y normal")
 
         ui.separator()
         if self._busy:
@@ -122,13 +143,16 @@ class ArtiFixerPanel(lf.ui.Panel):
         settings = ExportSettings(
             scene_id=self._scene_id,
             output_dir=self._output_dir,
-            resolution=(int(self._resolution_w), int(self._resolution_h)),
+            resolution=(
+                self._parse_positive_int(self._resolution_w_text, 1024),
+                self._parse_positive_int(self._resolution_h_text, 1024),
+            ),
             camera_mode=self._camera_mode,
             mode=ExportMode(self._export_mode),
             sampler=SamplerConfig(
-                width=int(self._resolution_w),
-                height=int(self._resolution_h),
-                num_views=int(self._num_views),
+                width=self._parse_positive_int(self._resolution_w_text, 1024),
+                height=self._parse_positive_int(self._resolution_h_text, 1024),
+                num_views=self._parse_positive_int(self._num_views_text, 36),
                 radius_factor=float(self._radius_factor),
             ),
         )
@@ -162,6 +186,28 @@ class ArtiFixerPanel(lf.ui.Panel):
             self._progress = 100 if self._status.startswith("Done") else self._progress
             self._busy = False
             lf.ui.request_redraw()
+
+    def _set_camera_mode(self, value: str) -> None:
+        self._camera_mode = value
+
+    def _set_export_mode(self, value: str) -> None:
+        self._export_mode = value
+
+    def _draw_choice_buttons(self, ui, current: str, options, setter) -> None:
+        for index, (value, label) in enumerate(options):
+            style = "primary" if value == current else "secondary"
+            if ui.button_styled(label, style):
+                setter(value)
+            if index < len(options) - 1:
+                ui.same_line()
+
+    @staticmethod
+    def _parse_positive_int(raw: str, default: int) -> int:
+        try:
+            value = int(raw.strip())
+            return value if value > 0 else default
+        except Exception:
+            return default
 
 
 _classes: List[type] = [ArtiFixerPanel]
