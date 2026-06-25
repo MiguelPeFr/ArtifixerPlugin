@@ -1,18 +1,16 @@
 """ArtiFixer Export panel for LichtFeld Studio.
 
-Based on the 360_record plugin UI conventions:
-
-- ``lf.ui.Panel`` subclass with ``id``, ``label``, ``space``, ``order``.
-- ``draw(self, ui)`` builds the UI using the immediate-mode helpers.
-- Heavy work is dispatched to a background thread and reflected through
-  ``lf.ui.request_redraw()`` so the UI stays responsive.
+LichtFeld registers this class via ``lf.register_class(ArtiFixerPanel)``
+inside the host. The panel must subclass the real ``lf.ui.Panel`` and
+declare ``space`` as the enum ``lf.ui.PanelSpace.MAIN_PANEL_TAB`` (not a
+string literal); otherwise the host raises ``ValueError``.
 """
 
 from __future__ import annotations
 
 import logging
 import threading
-from typing import Any, List, Type
+from typing import List, Type
 
 import lichtfeld as lf
 
@@ -24,26 +22,7 @@ log = logging.getLogger("artifixer_export.panel")
 
 
 # --------------------------------------------------------------------------- #
-# Lazy base class resolution
-# --------------------------------------------------------------------------- #
-def _resolve_panel_base() -> Type[Any]:
-    """Return ``lf.ui.Panel`` from the host, or ``object`` as a fallback.
-
-    The fallback only matters in environments where LichtFeld is not
-    installed (CI, tests). Inside LichtFeld the real base class is used.
-    """
-    try:
-        import lichtfeld as _lf  # type: ignore
-        return _lf.ui.Panel  # type: ignore[attr-defined]
-    except Exception:  # noqa: BLE001
-        return object
-
-
-PanelBase = _resolve_panel_base()
-
-
-# --------------------------------------------------------------------------- #
-class ArtiFixerPanel(PanelBase):
+class ArtiFixerPanel(lf.ui.Panel):
     """Main export panel rendered as a tab inside LichtFeld."""
 
     id = "artifixer.export_panel"
