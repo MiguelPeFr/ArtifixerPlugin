@@ -17,6 +17,8 @@ from pathlib import Path
 from typing import Any, Iterable, List, Optional
 
 import numpy as np
+import json
+import urllib.request
 
 from services.camera import Camera
 from services.camera_sampler import (
@@ -28,6 +30,40 @@ from services.camera_sampler import (
 )
 
 log = logging.getLogger(__name__)
+
+
+# #region debug-point A:scene-adapter
+def _debug_report(hypothesis_id: str, location: str, msg: str, data: Optional[dict] = None) -> None:
+    _p = ".dbg/preset-render-fallback.env"
+    _u, _s = "http://127.0.0.1:7777/event", "preset-render-fallback"
+    try:
+        with open(_p, "r", encoding="utf-8") as f:
+            c = f.read()
+        for line in c.splitlines():
+            if line.startswith("DEBUG_SERVER_URL="):
+                _u = line.split("=", 1)[1]
+            elif line.startswith("DEBUG_SESSION_ID="):
+                _s = line.split("=", 1)[1]
+    except Exception:
+        pass
+    try:
+        payload = {
+            "sessionId": _s,
+            "runId": "pre",
+            "hypothesisId": hypothesis_id,
+            "location": location,
+            "msg": f"[DEBUG] {msg}",
+            "data": data or {},
+        }
+        req = urllib.request.Request(
+            _u,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        urllib.request.urlopen(req, timeout=1).read()
+    except Exception:
+        pass
+# #endregion
 
 
 # --------------------------------------------------------------------------- #
@@ -51,10 +87,19 @@ class SceneAdapter:
     # ---- High level ---------------------------------------------------------
     def get_active_scene(self, app: Any) -> Scene:
         """Return the currently loaded scene from the host application."""
+        _debug_report("A", "scene_adapter.py:get_active_scene", "enter get_active_scene", {
+            "has_app": app is not None,
+            "app_type": type(app).__name__ if app is not None else None,
+        })
         if app is None:
             # Inside LichtFeld, plugins can still access the active scene via
             # the module-level API even if no explicit app handle is passed in.
             scene_obj = self._read_scene_from_lf()
+            _debug_report("A", "scene_adapter.py:get_active_scene", "lf.get_scene result", {
+                "scene_found": scene_obj is not None,
+                "scene_type": type(scene_obj).__name__ if scene_obj is not None else None,
+                "scene_name": getattr(scene_obj, "name", None) if scene_obj is not None else None,
+            })
             if scene_obj is not None:
                 return self._wrap_scene(scene_obj)
 
@@ -64,6 +109,11 @@ class SceneAdapter:
             return Scene(name="empty_scene")
 
         scene_obj = getattr(app, "active_scene", None)
+        _debug_report("A", "scene_adapter.py:get_active_scene", "app.active_scene result", {
+            "scene_found": scene_obj is not None,
+            "scene_type": type(scene_obj).__name__ if scene_obj is not None else None,
+            "scene_name": getattr(scene_obj, "name", None) if scene_obj is not None else None,
+        })
         if scene_obj is None:
             return Scene(name=getattr(app, "project_name", "scene"))
 
@@ -120,6 +170,12 @@ class SceneAdapter:
         """Convert a host object into our internal Scene."""
         cameras = self._read_cameras(scene_obj)
         aabb = self._read_aabb(scene_obj)
+        _debug_report("E", "scene_adapter.py:_wrap_scene", "wrapped scene", {
+            "scene_name": getattr(scene_obj, "name", None),
+            "camera_count": len(cameras),
+            "has_aabb": aabb is not None,
+            "ply_path": str(self._read_ply_path(scene_obj)) if self._read_ply_path(scene_obj) else None,
+        })
         return Scene(
             name=getattr(scene_obj, "name", "scene"),
             ply_path=self._read_ply_path(scene_obj),

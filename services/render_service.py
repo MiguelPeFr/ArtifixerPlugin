@@ -16,11 +16,47 @@ import math
 from typing import Any, Optional
 
 import numpy as np
+import json
+import urllib.request
 
 from services.camera import Camera
 from services.scene_adapter import Scene
 
 log = logging.getLogger(__name__)
+
+
+# #region debug-point B:render-service
+def _debug_report(hypothesis_id: str, location: str, msg: str, data: Optional[dict] = None) -> None:
+    _p = ".dbg/preset-render-fallback.env"
+    _u, _s = "http://127.0.0.1:7777/event", "preset-render-fallback"
+    try:
+        with open(_p, "r", encoding="utf-8") as f:
+            c = f.read()
+        for line in c.splitlines():
+            if line.startswith("DEBUG_SERVER_URL="):
+                _u = line.split("=", 1)[1]
+            elif line.startswith("DEBUG_SESSION_ID="):
+                _s = line.split("=", 1)[1]
+    except Exception:
+        pass
+    try:
+        payload = {
+            "sessionId": _s,
+            "runId": "pre",
+            "hypothesisId": hypothesis_id,
+            "location": location,
+            "msg": f"[DEBUG] {msg}",
+            "data": data or {},
+        }
+        req = urllib.request.Request(
+            _u,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        urllib.request.urlopen(req, timeout=1).read()
+    except Exception:
+        pass
+# #endregion
 
 
 class RenderService:
@@ -32,9 +68,24 @@ class RenderService:
     # ---- Public API ---------------------------------------------------------
     def render_rgb(self, scene: Scene, cam: Camera) -> np.ndarray:
         img = self._dispatch(scene, cam, pass_name="rgb")
+        _debug_report("B", "render_service.py:render_rgb", "after _dispatch rgb", {
+            "dispatch_hit": img is not None,
+            "scene_name": scene.name,
+            "camera_name": cam.name,
+            "camera_size": [cam.width, cam.height],
+        })
         if img is None:
             img = self._render_with_lf(scene, cam)
+        _debug_report("B", "render_service.py:render_rgb", "after _render_with_lf rgb", {
+            "lf_render_hit": img is not None,
+            "scene_name": scene.name,
+            "camera_name": cam.name,
+        })
         if img is None:
+            _debug_report("B", "render_service.py:render_rgb", "falling back to synthetic rgb", {
+                "scene_name": scene.name,
+                "camera_name": cam.name,
+            })
             img = self._synthetic_rgb(scene, cam)
         return self._ensure_uint8_rgb(img)
 
@@ -68,15 +119,31 @@ class RenderService:
 
         r = self._lichfeld_render
         if r is None:
+            _debug_report("B", "render_service.py:_dispatch", "no scene renderer available", {
+                "scene_name": scene.name,
+                "has_scene_raw": scene.raw is not None,
+            })
             return None
         try:
             fn = getattr(r, f"render_{pass_name}", None)
             if fn is None:
+                _debug_report("B", "render_service.py:_dispatch", "renderer missing pass", {
+                    "pass_name": pass_name,
+                    "renderer_type": type(r).__name__,
+                })
                 return None
             out = fn(camera=cam, scene=scene.raw)
+            _debug_report("B", "render_service.py:_dispatch", "renderer pass succeeded", {
+                "pass_name": pass_name,
+                "renderer_type": type(r).__name__,
+            })
             return np.asarray(out)
         except Exception:  # noqa: BLE001
             log.exception("LichtFeld render %s failed; using synthetic buffer", pass_name)
+            _debug_report("B", "render_service.py:_dispatch", "renderer pass raised exception", {
+                "pass_name": pass_name,
+                "renderer_type": type(r).__name__,
+            })
             return None
 
     def _render_with_lf(self, scene: Scene, cam: Camera) -> Optional[np.ndarray]:
@@ -89,6 +156,15 @@ class RenderService:
             target = eye + forward
             up = -cam.c2w[:3, 1]
             fov = self._camera_fov_deg(cam)
+            _debug_report("C", "render_service.py:_render_with_lf", "calling lf.render_at", {
+                "scene_name": scene.name,
+                "camera_name": cam.name,
+                "eye": [float(x) for x in eye],
+                "target": [float(x) for x in target],
+                "up": [float(x) for x in up],
+                "fov": float(fov),
+                "size": [int(cam.width), int(cam.height)],
+            })
 
             frame_tensor = lf.render_at(
                 eye=tuple(float(x) for x in eye),
@@ -99,10 +175,25 @@ class RenderService:
                 up=tuple(float(x) for x in up),
             )
             if frame_tensor is None:
+                _debug_report("C", "render_service.py:_render_with_lf", "lf.render_at returned None", {
+                    "scene_name": scene.name,
+                    "camera_name": cam.name,
+                })
                 return None
-            return self._tensor_to_numpy(frame_tensor)
+            arr = self._tensor_to_numpy(frame_tensor)
+            _debug_report("C", "render_service.py:_render_with_lf", "lf.render_at returned frame", {
+                "shape": list(arr.shape),
+                "dtype": str(arr.dtype),
+                "min": int(arr.min()) if arr.size else None,
+                "max": int(arr.max()) if arr.size else None,
+            })
+            return arr
         except Exception:  # noqa: BLE001
             log.exception("lf.render_at failed; using synthetic fallback")
+            _debug_report("C", "render_service.py:_render_with_lf", "lf.render_at raised exception", {
+                "scene_name": scene.name,
+                "camera_name": cam.name,
+            })
             return None
 
     def _render_alpha_with_lf(self, scene: Scene, cam: Camera) -> Optional[np.ndarray]:
