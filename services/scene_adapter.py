@@ -22,10 +22,12 @@ import urllib.request
 
 from services.camera import Camera
 from services.camera_sampler import (
+    CameraRigSampler,
     HemisphereSampler,
     ManualSampler,
     MultiRingSampler,
     OrbitSampler,
+    RigConfig,
     SamplerConfig,
 )
 
@@ -253,6 +255,13 @@ class SceneAdapter:
             cams = HemisphereSampler(cfg).sample(center, radius)
         elif mode == "multi_ring":
             cams = MultiRingSampler(cfg).sample(center, radius)
+        elif mode == "rig":
+            cfg_rig = rig_cfg or RigConfig(
+                distance=max(radius * 1.6, 2.5),
+                num_cameras=int(getattr(cfg, "num_views", 24)),
+                rings=int(getattr(cfg, "rings", 2)),
+            )
+            cams = CameraRigSampler(cfg_rig).sample(center, radius)
         elif mode == "manual":
             cams = ManualSampler(cfg).sample(center, radius)
         else:

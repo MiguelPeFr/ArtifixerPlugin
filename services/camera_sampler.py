@@ -178,3 +178,124 @@ class ManualSampler(_BaseSampler):
                 np.asarray(look, dtype=np.float64),
             ))
         return cams
+
+
+# --------------------------------------------------------------------------- #
+@dataclass
+class RigConfig:
+    """Parameters for a manually-scaled camera rig placed over the scene."""
+
+    # Distance from the rig centre to each camera (in world units).
+    distance: float = 2.5
+    # Centre offset added to the scene centre (world units).
+    center_offset: Tuple[float, float, float] = (0.0, 0.0, 0.0)
+    # Up axis for the rig: 0 = X, 1 = Y, 2 = Z.
+    up_axis: int = 2
+    # Number of cameras around the rig.
+    num_cameras: int = 24
+    # Number of elevation rings.
+    rings: int = 2
+    # Min / max elevation along the up axis (degrees).
+    elevation_min_deg: float = -10.0
+    elevation_max_deg: float = 30.0
+    # Initial rotation around the up axis (degrees).
+    start_angle_deg: float = 0.0
+    # Global scale factor applied on top of ``distance``.
+    scale: float = 1.0
+    # Field of view in degrees (translated to focal length on a 1024 viewport).
+    fov_deg: float = 50.0
+    # Render resolution.
+    width: int = 1024
+    height: int = 1024
+
+
+class CameraRigSampler:
+    """Build a ring of cameras around the scene at user-controlled scale.
+
+    The rig is fully deterministic: same configuration always produces the
+    same cameras. Use :meth:`RigConfig` defaults to get a sensible 24-view
+    two-level rig around a unit-sphere scene.
+    """
+
+    def __init__(self, cfg: RigConfig):
+        self.cfg = cfg
+
+    def sample(self, center: np.ndarray, radius: float) -> List[Camera]:
+        cfg = self.cfg
+        up_vec = np.zeros(3, dtype=np.float64)
+        up_vec[int(cfg.up_axis) % 3] = 1.0
+
+        # World-space centre of the rig (scene centre + offset)
+        rig_centre = np.asarray(center, dtype=np.float64) + np.asarray(
+            cfg.center_offset, dtype=np.float64
+        )
+
+        distance = float(cfg.distance) * float(cfg.scale)
+        cams: List[Camera] = []
+        rings = max(1, int(cfg.rings))
+        per_ring = max(1, int(cfg.num_cameras) // rings)
+        idx = 0
+        for k in range(rings):
+            t = (k + 1) / rings
+            elev_deg = cfg.elevation_min_deg + t * (cfg.elevation_max_deg - cfg.elevation_min_deg)
+            elev = math.radians(elev_deg)
+            for j in range(per_ring):
+                theta = math.radians(cfg.start_angle_deg) + 2 * math.pi * j / per_ring
+                direction = self._spherical_to_xyz(theta, elev, up_vec)
+                eye = rig_centre + direction * distance
+                cam = self._make_camera(idx, eye, rig_centre, up_vec, cfg)
+                cams.append(cam)
+                idx += 1
+        return cams
+
+    @staticmethod
+    def _spherical_to_xyz(theta: float, elev: float, up_vec: np.ndarray) -> np.ndarray:
+        """Build a direction vector in the plane perpendicular to ``up_vec``.
+
+        ``elev`` rotates the direction away from the plane (0 = on the plane,
+        +pi/2 = along ``up_vec``).
+        """
+        base = np.array([0.0, 0.0, 0.0], dtype=np.float64)
+        if abs(up_vec[2]) < 0.9:
+            base[0] = 1.0
+        else:
+            base[1] = 1.0
+        e1 = np.cross(up_vec, base)
+        e1 /= np.linalg.norm(e1) + 1e-12
+        e2 = np.cross(up_vec, e1)
+
+        on_plane = math.cos(theta) * e1 + math.sin(theta) * e2
+        return (math.sin(elev) * up_vec + math.cos(elev) * on_plane).astype(np.float64)
+
+    @staticmethod
+    def _make_camera(idx: int, eye: np.ndarray, target: np.ndarray, up: np.ndarray, cfg: RigConfig) -> Camera:
+        forward = target - eye
+        forward /= np.linalg.norm(forward) + 1e-12
+        right = np.cross(forward, up)
+        n = np.linalg.norm(right)
+        if n < 1e-8:
+            up = np.array([0.0, 0.0, 1.0]) if abs(forward[2]) < 0.9 else np.array([0.0, 1.0, 0.0])
+            right = np.cross(forward, up)
+            n = np.linalg.norm(right)
+        right /= n
+        new_up = np.cross(right, forward)
+        new_up /= np.linalg.norm(new_up) + 1e-12
+        rot = np.stack([right, -new_up, forward], axis=1)
+        c2w = np.eye(4)
+        c2w[:3, :3] = rot
+        c2w[:3, 3] = eye
+        w2c = np.linalg.inv(c2w)
+
+        fov_rad = math.radians(cfg.fov_deg)
+        focal = (cfg.width / 2.0) / math.tan(fov_rad / 2.0)
+        return Camera(
+            name=f"rig_{idx:04d}",
+            width=cfg.width,
+            height=cfg.height,
+            fx=focal,
+            fy=focal,
+            cx=cfg.width / 2,
+            cy=cfg.height / 2,
+            c2w=c2w,
+            w2c=w2c,
+        )

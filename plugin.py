@@ -121,13 +121,14 @@ class ArtiFixerExportPlugin:
             progress_cb=(self.panel.set_progress if self.panel else None),
         )
 
-        scene = self.adapter.get_active_scene(self.app)
+        scene = self.adapter.get_active_scene(self.app, out_dir=out_dir)
         ctx.report(0, 100, f"Scene loaded: {getattr(scene, 'name', '?')}")
 
         cameras = self.adapter.collect_cameras(
             scene,
             mode=settings.camera_mode,
             sampler_cfg=settings.sampler,
+            rig_cfg=settings.rig,
         )
         if not cameras:
             raise RuntimeError("No cameras available for export")

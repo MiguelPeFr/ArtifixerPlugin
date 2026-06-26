@@ -14,7 +14,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Callable, Optional
 
-from services.camera_sampler import SamplerConfig
+from services.camera_sampler import RigConfig, SamplerConfig
 
 log = logging.getLogger(__name__)
 
@@ -31,9 +31,10 @@ class ExportSettings:
     scene_id: str = ""
     output_dir: str = "./artifixer_dataset"
     resolution: tuple = (1024, 1024)
-    camera_mode: str = "original"      # original / orbit / hemisphere / multi_ring / manual
+    camera_mode: str = "original"      # original / orbit / hemisphere / multi_ring / rig / manual
     mode: ExportMode = ExportMode.TRAINING
     sampler: SamplerConfig = field(default_factory=SamplerConfig)
+    rig: RigConfig = field(default_factory=RigConfig)
     coordinate_system: str = "opencv"
     force_synthetic: bool = False      # set True to ignore project cameras
 

@@ -8,7 +8,7 @@ from typing import List
 
 import lichtfeld as lf
 
-from services.camera_sampler import SamplerConfig
+from services.camera_sampler import RigConfig, SamplerConfig
 from ui.export_panel import ExportMode, ExportSettings
 
 log = logging.getLogger("artifixer_export.panel")
@@ -32,6 +32,17 @@ class ArtiFixerPanel(lf.ui.Panel):
         self._export_mode: str = ExportMode.TRAINING.value
         self._num_views_text: str = "36"
         self._radius_factor: float = 1.6
+        self._rig_distance: float = 2.5
+        self._rig_scale: float = 1.0
+        self._rig_num_cameras_text: str = "24"
+        self._rig_rings_text: str = "2"
+        self._rig_elev_min: float = -10.0
+        self._rig_elev_max: float = 30.0
+        self._rig_start_angle: float = 0.0
+        self._rig_offset_x: float = 0.0
+        self._rig_offset_y: float = 0.0
+        self._rig_offset_z: float = 0.0
+        self._rig_up_axis: str = "z"
         self._status: str = "Idle"
         self._progress: int = 0
         self._busy: bool = False
@@ -92,6 +103,7 @@ class ArtiFixerPanel(lf.ui.Panel):
                     ("orbit", "Orbit"),
                     ("hemisphere", "Hemisphere"),
                     ("multi_ring", "Multi Ring"),
+                    ("rig", "Rig"),
                     ("manual", "Manual"),
                 ],
                 setter=self._set_camera_mode,
@@ -102,6 +114,46 @@ class ArtiFixerPanel(lf.ui.Panel):
             _, self._radius_factor = ui.slider_float(
                 "Radius factor", self._radius_factor, 0.5, 5.0
             )
+
+            if self._camera_mode == "rig":
+                ui.separator()
+                ui.label("Rig")
+                self._draw_choice_buttons(
+                    ui,
+                    current=self._rig_up_axis,
+                    options=[("x", "Up X"), ("y", "Up Y"), ("z", "Up Z")],
+                    setter=lambda v: setattr(self, "_rig_up_axis", v),
+                )
+                _, self._rig_distance = ui.slider_float(
+                    "Distance", self._rig_distance, 0.5, 50.0
+                )
+                _, self._rig_scale = ui.slider_float(
+                    "Scale", self._rig_scale, 0.1, 10.0
+                )
+                _, self._rig_num_cameras_text = ui.input_text_with_hint(
+                    "Cameras", "24", self._rig_num_cameras_text
+                )
+                _, self._rig_rings_text = ui.input_text_with_hint(
+                    "Rings", "2", self._rig_rings_text
+                )
+                _, self._rig_elev_min = ui.slider_float(
+                    "Elev min", self._rig_elev_min, -90.0, 90.0
+                )
+                _, self._rig_elev_max = ui.slider_float(
+                    "Elev max", self._rig_elev_max, -90.0, 90.0
+                )
+                _, self._rig_start_angle = ui.slider_float(
+                    "Start angle", self._rig_start_angle, 0.0, 360.0
+                )
+                _, self._rig_offset_x = ui.slider_float(
+                    "Offset X", self._rig_offset_x, -10.0, 10.0
+                )
+                _, self._rig_offset_y = ui.slider_float(
+                    "Offset Y", self._rig_offset_y, -10.0, 10.0
+                )
+                _, self._rig_offset_z = ui.slider_float(
+                    "Offset Z", self._rig_offset_z, -10.0, 10.0
+                )
 
             ui.separator()
             ui.label("Export preset")
@@ -158,6 +210,24 @@ class ArtiFixerPanel(lf.ui.Panel):
                 height=self._parse_positive_int(self._resolution_h_text, 1024),
                 num_views=self._parse_positive_int(self._num_views_text, 36),
                 radius_factor=float(self._radius_factor),
+            ),
+            rig=RigConfig(
+                distance=float(self._rig_distance),
+                scale=float(self._rig_scale),
+                num_cameras=self._parse_positive_int(self._rig_num_cameras_text, 24),
+                rings=self._parse_positive_int(self._rig_rings_text, 2),
+                elevation_min_deg=float(self._rig_elev_min),
+                elevation_max_deg=float(self._rig_elev_max),
+                start_angle_deg=float(self._rig_start_angle),
+                center_offset=(
+                    float(self._rig_offset_x),
+                    float(self._rig_offset_y),
+                    float(self._rig_offset_z),
+                ),
+                up_axis={"x": 0, "y": 1, "z": 2}.get(self._rig_up_axis, 2),
+                width=self._parse_positive_int(self._resolution_w_text, 1024),
+                height=self._parse_positive_int(self._resolution_h_text, 1024),
+                fov_deg=float(self._radius_factor) * 25.0 + 10.0,
             ),
         )
 
