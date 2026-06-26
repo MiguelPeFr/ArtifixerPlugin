@@ -103,6 +103,15 @@ class RenderService:
         self.debug_events.append(event)
         return self._ensure_uint8_rgb(img)
 
+    def save_rgb(self, path: Any, frame_tensor: Any) -> bool:
+        """Save a frame with ``lf.io.save_image`` when available."""
+        try:
+            import lichtfeld.io as lf_io  # type: ignore
+            lf_io.save_image(str(path), frame_tensor)
+            return True
+        except Exception:  # noqa: BLE001
+            return False
+
     def render_opacity(self, scene: Scene, cam: Camera) -> np.ndarray:
         img = self._dispatch(scene, cam, pass_name="opacity")
         if img is None:
