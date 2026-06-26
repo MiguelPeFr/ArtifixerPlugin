@@ -137,13 +137,27 @@ class SceneAdapter:
         """Return the cameras to render/export.
 
         mode:
-            original   -> use scene.cameras as is
+            original   -> use scene.cameras as is (preferred when available)
             orbit      -> orbit around scene AABB
             hemisphere -> upper hemisphere orbit
             multi_ring -> concentric rings at multiple elevations
             manual     -> user supplied keyframes (sampler_cfg.manual_poses)
+
+        If the project already exposes real cameras, ``original`` is used
+        even when another mode is requested. Synthetic modes are only used
+        when no real cameras exist or when ``force_synthetic`` is True.
         """
         mode = mode.lower()
+
+        # Prefer real cameras from the project whenever they exist
+        if scene.cameras and mode != "manual":
+            log.info(
+                "Using %d real cameras from the active project (requested mode=%s)",
+                len(scene.cameras),
+                mode,
+            )
+            return list(scene.cameras)
+
         if mode == "original":
             return list(scene.cameras)
 

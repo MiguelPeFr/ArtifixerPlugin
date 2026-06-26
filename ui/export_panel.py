@@ -31,10 +31,11 @@ class ExportSettings:
     scene_id: str = ""
     output_dir: str = "./artifixer_dataset"
     resolution: tuple = (1024, 1024)
-    camera_mode: str = "orbit"          # original / orbit / hemisphere / multi_ring / manual
+    camera_mode: str = "original"      # original / orbit / hemisphere / multi_ring / manual
     mode: ExportMode = ExportMode.TRAINING
     sampler: SamplerConfig = field(default_factory=SamplerConfig)
     coordinate_system: str = "opencv"
+    force_synthetic: bool = False      # set True to ignore project cameras
 
     def to_json(self) -> str:
         d = asdict(self)

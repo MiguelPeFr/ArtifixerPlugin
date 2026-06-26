@@ -28,7 +28,7 @@ class ArtiFixerPanel(lf.ui.Panel):
         self._output_dir: str = "./artifixer_dataset"
         self._resolution_w_text: str = "1024"
         self._resolution_h_text: str = "1024"
-        self._camera_mode: str = "orbit"
+        self._camera_mode: str = "original"
         self._export_mode: str = ExportMode.TRAINING.value
         self._num_views_text: str = "36"
         self._radius_factor: float = 1.6
@@ -36,6 +36,7 @@ class ArtiFixerPanel(lf.ui.Panel):
         self._progress: int = 0
         self._busy: bool = False
         self._last_manifest: str = ""
+        self._project_camera_count: int = 0
 
     # ---- Imperative API used by the runner thread -------------------------
     def set_status(self, msg: str) -> None:
