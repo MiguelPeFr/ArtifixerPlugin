@@ -79,45 +79,90 @@ class Scene:
 
 
 # --------------------------------------------------------------------------- #
+def _write_camera_probe(out_dir: Optional[Path], payload: dict) -> None:
+    """Persist camera probe diagnostics to ``camera_probe.json``.
+
+    The file is best-effort: failures are swallowed silently so the export
+    pipeline is never blocked by a diagnostic step.
+    """
+    if out_dir is None:
+        return
+    try:
+        target = Path(out_dir) / "camera_probe.json"
+        target.write_text(json.dumps(payload, indent=2, default=str))
+    except Exception:  # noqa: BLE001
+        pass
+
+
+# --------------------------------------------------------------------------- #
 # Adapter
 # --------------------------------------------------------------------------- #
 class SceneAdapter:
     """Reads cameras and scene metadata from the active LichtFeld project."""
 
     # ---- High level ---------------------------------------------------------
-    def get_active_scene(self, app: Any) -> Scene:
-        """Return the currently loaded scene from the host application."""
-        _debug_report("A", "scene_adapter.py:get_active_scene", "enter get_active_scene", {
-            "has_app": app is not None,
+    def get_active_scene(self, app: Any, out_dir: Optional[Path] = None) -> Scene:
+        """Return the currently loaded scene from the host application.
+
+        The ``out_dir`` argument is optional and is used to drop a diagnostic
+        file (``camera_probe.json``) listing every LichtFeld API entry point
+        we tried while looking for the active scene and its cameras.
+        """
+        probe: dict = {
+            "app_provided": app is not None,
             "app_type": type(app).__name__ if app is not None else None,
-        })
-        if app is None:
-            # Inside LichtFeld, plugins can still access the active scene via
-            # the module-level API even if no explicit app handle is passed in.
-            scene_obj = self._read_scene_from_lf()
-            _debug_report("A", "scene_adapter.py:get_active_scene", "lf.get_scene result", {
-                "scene_found": scene_obj is not None,
-                "scene_type": type(scene_obj).__name__ if scene_obj is not None else None,
-                "scene_name": getattr(scene_obj, "name", None) if scene_obj is not None else None,
-            })
+            "lf_available": False,
+            "lf_scene": None,
+            "app_active_scene": None,
+            "probe_results": {},
+        }
+
+        try:
+            import lichtfeld as lf  # type: ignore
+
+            probe["lf_available"] = True
+            lf_scene = self._read_scene_from_lf()
+            probe["lf_scene"] = {
+                "found": lf_scene is not None,
+                "type": type(lf_scene).__name__ if lf_scene is not None else None,
+                "name": getattr(lf_scene, "name", None) if lf_scene is not None else None,
+            }
+            if lf_scene is not None:
+                cams = self._read_cameras(lf_scene)
+                probe["lf_cameras"] = {
+                    "count": len(cams),
+                    "names": [c.name for c in cams[:8]],
+                    "first_fx": cams[0].fx if cams else None,
+                }
+                aabb = self._read_aabb(lf_scene)
+                probe["lf_aabb"] = (
+                    aabb.tolist() if aabb is not None else None
+                )
+                _write_camera_probe(out_dir, probe)
+                return self._wrap_scene(lf_scene)
+        except Exception as exc:  # noqa: BLE001
+            probe["lf_error"] = repr(exc)
+
+        if app is not None:
+            scene_obj = getattr(app, "active_scene", None)
+            probe["app_active_scene"] = {
+                "found": scene_obj is not None,
+                "type": type(scene_obj).__name__ if scene_obj is not None else None,
+                "name": getattr(scene_obj, "name", None) if scene_obj is not None else None,
+            }
             if scene_obj is not None:
+                cams = self._read_cameras(scene_obj)
+                probe["app_cameras"] = {
+                    "count": len(cams),
+                    "names": [c.name for c in cams[:8]],
+                    "first_fx": cams[0].fx if cams else None,
+                }
+                _write_camera_probe(out_dir, probe)
                 return self._wrap_scene(scene_obj)
 
-            # No host: return a minimal scene so the rest of the pipeline
-            # can still run in standalone / test mode.
-            log.warning("No app context; returning empty scene")
-            return Scene(name="empty_scene")
-
-        scene_obj = getattr(app, "active_scene", None)
-        _debug_report("A", "scene_adapter.py:get_active_scene", "app.active_scene result", {
-            "scene_found": scene_obj is not None,
-            "scene_type": type(scene_obj).__name__ if scene_obj is not None else None,
-            "scene_name": getattr(scene_obj, "name", None) if scene_obj is not None else None,
-        })
-        if scene_obj is None:
-            return Scene(name=getattr(app, "project_name", "scene"))
-
-        return self._wrap_scene(scene_obj)
+        _write_camera_probe(out_dir, probe)
+        log.warning("No LichtFeld scene or app context found; returning empty scene")
+        return Scene(name="empty_scene")
 
     @staticmethod
     def _read_scene_from_lf() -> Any:
@@ -127,6 +172,42 @@ class SceneAdapter:
             return lf.get_scene()
         except Exception:  # noqa: BLE001
             return None
+
+    @staticmethod
+    def _enumerate_attrs(obj: Any) -> dict:
+        """Return a snapshot of every public attribute on ``obj``.
+
+        Only metadata is captured (type name, length if available, first
+        item's type if it's iterable). Values are never materialised in
+        full so the probe stays cheap on large scenes.
+        """
+        info: dict = {}
+        if obj is None:
+            return info
+        for name in dir(obj):
+            if name.startswith("_"):
+                continue
+            try:
+                value = getattr(obj, name)
+            except Exception as exc:  # noqa: BLE001
+                info[name] = {"accessible": False, "error": repr(exc)}
+                continue
+            entry: dict = {"type": type(value).__name__}
+            try:
+                if hasattr(value, "__len__"):
+                    entry["len"] = len(value)
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                if hasattr(value, "__iter__") and not isinstance(value, (str, bytes, dict)):
+                    iterator = iter(value)
+                    first = next(iterator, None)
+                    if first is not None:
+                        entry["first_type"] = type(first).__name__
+            except Exception:  # noqa: BLE001
+                pass
+            info[name] = entry
+        return info
 
     def collect_cameras(
         self,
