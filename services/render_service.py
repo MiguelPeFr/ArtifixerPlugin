@@ -112,24 +112,43 @@ class RenderService:
         except Exception:  # noqa: BLE001
             return False
 
-    def render_opacity(self, scene: Scene, cam: Camera) -> np.ndarray:
+    def render_opacity(self, scene: Scene, cam: Camera) -> Optional[np.ndarray]:
+        """Return the opacity buffer for the given camera.
+
+        Preference order:
+          1. ``scene.renderer.render_opacity`` if available
+          2. Alpha channel of the RGB(A) frame from ``lf.render_at``
+          3. ``None`` when the host has no training buffer to read from
+        """
         img = self._dispatch(scene, cam, pass_name="opacity")
-        if img is None:
-            img = self._render_alpha_with_lf(scene, cam)
-        if img is None:
-            img = self._synthetic_opacity(scene, cam)
-        return self._ensure_mask(img)
+        if img is not None:
+            return self._ensure_mask(img)
+        alpha = self._render_alpha_with_lf(scene, cam)
+        if alpha is not None:
+            return self._ensure_mask(alpha)
+        return None
 
     def render_depth(self, scene: Scene, cam: Camera) -> Optional[np.ndarray]:
+        """Return the depth buffer for the given camera.
+
+        ``None`` is returned when the host has no training buffer (i.e. when
+        the user has not started or has stopped training). Synthetic
+        gradients are intentionally not produced so the dataset reflects the
+        actual scene state.
+        """
         img = self._dispatch(scene, cam, pass_name="depth")
         if img is None:
-            img = self._synthetic_depth(scene, cam)
+            return None
         return np.asarray(img, dtype=np.float32)
 
     def render_normal(self, scene: Scene, cam: Camera) -> Optional[np.ndarray]:
+        """Return the normal buffer for the given camera.
+
+        Same policy as :meth:`render_depth`.
+        """
         img = self._dispatch(scene, cam, pass_name="normal")
         if img is None:
-            return self._synthetic_normal(scene, cam)
+            return None
         return np.asarray(img, dtype=np.float32)
 
     # ---- Internals ----------------------------------------------------------

@@ -64,27 +64,30 @@ class DatasetWriter:
         manifest: Dict[str, Any],
         frame_id: str,
         rgb: np.ndarray,
-        opacity: np.ndarray,
         camera,
         out_dir: Path,
         mode: str,
+        opacity: Optional[np.ndarray] = None,
         depth: Optional[np.ndarray] = None,
         normal: Optional[np.ndarray] = None,
     ) -> None:
         paths = self._ensure_paths(out_dir)
 
         rgb_path = paths.rgb / f"{frame_id}.png"
-        op_path = paths.opacity / f"{frame_id}.png"
+        op_path = paths.opacity / f"{frame_id}.png" if opacity is not None else None
         depth_path = paths.depth / f"{frame_id}.exr" if depth is not None else None
         normal_path = paths.normal / f"{frame_id}.png" if normal is not None else None
 
         _save_image(rgb_path, rgb)
-        _save_image(op_path, opacity)
 
         rel_rgb = str(rgb_path.relative_to(out_dir))
-        rel_op = str(op_path.relative_to(out_dir))
+        rel_op = None
         rel_depth = None
         rel_normal = None
+
+        if opacity is not None:
+            _save_image(op_path, opacity)
+            rel_op = str(op_path.relative_to(out_dir))
 
         if depth is not None:
             depth_path = _save_depth(paths.depth / f"{frame_id}.exr", depth)
